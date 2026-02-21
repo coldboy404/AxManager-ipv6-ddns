@@ -2,6 +2,7 @@
 
 一个为 **AxManager** 设计的 Cloudflare 动态 IPv6 同步插件：
 自动检测设备当前 IPv6，并更新到 Cloudflare 的 `AAAA` 记录。
+ps:我能想到的用途之一就是在被控手机上安装AxManager和本插件，并在AxManager里设置好开机自启关闭电池优化，然后随时随地通过公网域名和无线ADB远程控制另一台手机
 
 ## 🔗 项目链接
 - 本插件仓库：<https://github.com/coldboy404/AxManager-ipv6-ddns>
@@ -44,6 +45,3 @@
 - 运行目录：`/sdcard/Android/media/cf_ipv6_ddns`
 - 配置文件：`/sdcard/Android/media/cf_ipv6_ddns/config.env`
 - 日志文件：`/sdcard/Android/media/cf_ipv6_ddns/ddns.log`
-
-## 📌 当前版本
-`v2.2.5`
