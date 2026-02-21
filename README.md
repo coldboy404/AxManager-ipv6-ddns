@@ -7,6 +7,15 @@
 - 本插件仓库：<https://github.com/coldboy404/AxManager-ipv6-ddns>
 - AxManager：<https://github.com/fahrez182/AxManager>
 
+
+## 🖼️ 界面预览
+
+### 插件卡片
+![插件卡片](docs/images/plugin-card.jpg)
+
+### WebUI
+![WebUI](docs/images/webui.jpg)
+
 ## ✨ 功能特性
 - 自动检测并同步 IPv6 到 Cloudflare `AAAA`
 - 网络切换（Wi-Fi / 移动数据）场景更稳
