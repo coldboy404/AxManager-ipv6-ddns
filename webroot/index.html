@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cloudflare IPv6 DDNS</title>
+  <style>
+    body{
+      font-family:system-ui,-apple-system,sans-serif;
+      background:#0b1220;
+      color:#e5e7eb;
+      margin:0;
+      padding:16px;
+      min-height:100vh;
+      display:flex;
+      align-items:flex-start;
+      justify-content:center;
+      padding-top:9vh;
+      box-sizing:border-box;
+    }
+    .card{
+      width:min(680px, 100%);
+      margin:0;
+      background:rgba(17,24,39,.78);
+      border:1px solid rgba(31,41,55,.9);
+      border-radius:14px;
+      padding:16px;
+      backdrop-filter: blur(4px);
+    }
+    .field{margin-bottom:12px}
+    label{display:block;font-size:12px;color:#c0d4ff;margin-bottom:6px}
+    input,select{width:100%;padding:10px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#fff;box-sizing:border-box}
+    .row{display:flex;gap:10px}.row>div{flex:1}
+    .btns{display:flex;gap:10px;margin-top:14px}
+    button{flex:1;padding:11px;border:none;border-radius:8px;font-weight:700;cursor:pointer}
+    #save{background:#f6821f;color:#111} #run{background:#1f2937;color:#fff}
+    #msg{margin-top:10px;font-size:13px;min-height:18px;white-space:pre-wrap}
+    pre{background:#020617;border:1px solid #334155;border-radius:8px;padding:10px;white-space:pre-wrap;max-height:220px;overflow:auto;display:none}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h3 style="margin-top:0">Cloudflare IPv6 DDNS v2.2.5</h3>
+    <div class="field"><label>当前 IPv6</label><div id="ipv6" style="font-family:monospace;color:#93c5fd">检测中...</div></div>
+
+    <div class="field"><label>CF API TOKEN</label><input id="CF_API_TOKEN" type="password" /></div>
+    <div class="field"><label>CF ZONE ID</label><input id="CF_ZONE_ID" type="text" /></div>
+    <div class="field"><label>解析域名</label><input id="CF_RECORD_NAME" type="text" placeholder="请输入要同步的域名" /></div>
+    <div class="row">
+      <div class="field"><label>Cloudflare CDN</label><select id="CF_PROXIED"><option value="0">关</option><option value="1">开</option></select></div>
+      <div class="field"><label>检查间隔（秒）</label><input id="CHECK_INTERVAL" type="number" value="300" /></div>
+    </div>
+
+    <div class="btns"><button id="save">保存配置</button><button id="run">立即同步</button></div>
+    <div id="msg"></div>
+    <pre id="log"></pre>
+  </div>
+
+<script type="module">
+import { exec } from 'ax://kernelsu.js';
+
+const RUNTIME='/sdcard/Android/media/cf_ipv6_ddns';
+const CFG=`${RUNTIME}/config.env`;
+const DDNS=`${RUNTIME}/ddns.sh`;
+const fields=['CF_API_TOKEN','CF_ZONE_ID','CF_RECORD_NAME','CF_PROXIED','CHECK_INTERVAL'];
+
+function m(t,c='#94a3b8'){const e=document.getElementById('msg');e.textContent=t;e.style.color=c}
+function esc(v){return String(v||'').replace(/'/g,"'\"'\"'").replace(/\r?\n/g,'');}
+
+async function x(cmd){
+  try {
+    const r = await exec(cmd);
+    const code = (typeof r?.code === 'number') ? r.code : ((typeof r?.exitCode === 'number') ? r.exitCode : 0);
+    return { code, stdout: r?.stdout || '', stderr: r?.stderr || '' };
+  } catch(e){
+    return { code:999, stdout:'', stderr:String(e) };
+  }
+}
+
+async function refreshIPv6(){
+  // More robust: run step-by-step (some AxManager exec environments dislike multiline shell)
+  let ip = '';
+
+  let r = await x("curl -6 -sS --max-time 6 https://api64.ipify.org 2>/dev/null | tr -d '\r\n '");
+  ip = ((r.stdout||'').trim());
+
+  if(!ip){
+    r = await x("ip -6 route get 2606:4700:4700::1111 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"src\"){print $(i+1); exit}}'");
+    ip = ((r.stdout||'').trim());
+  }
+
+  if(!ip){
+    r = await x("ip -6 addr show scope global 2>/dev/null | awk '/inet6/{print $2}' | cut -d/ -f1 | head -n1");
+    ip = ((r.stdout||'').trim());
+  }
+
+  ip = ip.replace(/^inet6\s+/i, '').replace(/^addr:\s*/i, '').replace(/\/.+$/, '');
+  document.getElementById('ipv6').textContent = ip || '未获取到';
+}
+
+async function ensureRuntime(){
+  await x(`mkdir -p ${RUNTIME}`);
+  await x(`
+[ -f ${DDNS} ] || cp ../system/bin/ddns.sh ${DDNS} 2>/dev/null || true
+[ -f ${DDNS} ] || cp /data/adb/modules/cf_ipv6_ddns/system/bin/ddns.sh ${DDNS} 2>/dev/null || true
+[ -f ${DDNS} ] || cp /data/adb/modules_update/cf_ipv6_ddns/system/bin/ddns.sh ${DDNS} 2>/dev/null || true
+chmod 700 ${DDNS} 2>/dev/null || true`);
+}
+
+async function load(){
+  await ensureRuntime();
+  const r=await x(`[ -f ${CFG} ] && cat ${CFG} || true`);
+  (r.stdout||'').split('\n').forEach(line=>{
+    const t=line.trim(); if(!t||t.startsWith('#')||!t.includes('=')) return;
+    const i=t.indexOf('='); const k=t.slice(0,i).trim(); const v=t.slice(i+1).trim();
+    const el=document.getElementById(k); if(el) el.value=v;
+  });
+  await refreshIPv6();
+  m('就绪','#10b981');
+}
+
+async function save(){
+  m('保存中...','#f59e0b');
+  await ensureRuntime();
+  const vals={};
+  fields.forEach(k=> vals[k]=esc(document.getElementById(k).value));
+
+  const cmds = [
+    `mkdir -p ${RUNTIME}`,
+    `: > ${CFG}`,
+    `echo '# generated by webui v2.2.1' >> ${CFG}`,
+    `echo 'CF_API_TOKEN=${vals.CF_API_TOKEN}' >> ${CFG}`,
+    `echo 'CF_ZONE_ID=${vals.CF_ZONE_ID}' >> ${CFG}`,
+    `echo 'CF_RECORD_NAME=${vals.CF_RECORD_NAME}' >> ${CFG}`,
+    `echo 'CF_PROXIED=${vals.CF_PROXIED||'0'}' >> ${CFG}`,
+    `echo 'CF_TTL=120' >> ${CFG}`,
+    `echo 'CHECK_INTERVAL=${vals.CHECK_INTERVAL||'300'}' >> ${CFG}`
+  ];
+
+  for (const c of cmds) {
+    const rr = await x(c);
+    if (rr.code !== 0) {
+      m('保存失败:\n'+((rr.stderr||'').trim()||(rr.stdout||'').trim()||String(rr.code)),'#ef4444');
+      return;
+    }
+  }
+
+  const verify=await x(`[ -f ${CFG} ] && grep -q '^CF_API_TOKEN=' ${CFG} && grep -q '^CF_ZONE_ID=' ${CFG} && grep -q '^CF_RECORD_NAME=' ${CFG} && echo OK || echo FAIL`);
+  if((verify.stdout||'').includes('OK')) m('保存成功','#10b981');
+  else m('保存失败: 配置文件校验未通过','#ef4444');
+}
+
+async function runNow(){
+  m('同步中...','#f59e0b');
+  await ensureRuntime();
+  const log=document.getElementById('log'); log.style.display='block'; log.textContent='';
+
+  const r=await x(`
+if [ -f ${DDNS} ]; then
+  sh ${DDNS}
+elif [ -f /data/adb/modules/cf_ipv6_ddns/system/bin/ddns.sh ]; then
+  sh /data/adb/modules/cf_ipv6_ddns/system/bin/ddns.sh
+elif [ -f /data/adb/modules_update/cf_ipv6_ddns/system/bin/ddns.sh ]; then
+  sh /data/adb/modules_update/cf_ipv6_ddns/system/bin/ddns.sh
+else
+  echo 'ddns.sh not found in runtime or module path'
+  exit 127
+fi`);
+
+  log.textContent=(r.stdout||'') + '\n' + (r.stderr||'');
+  if(r.code===0) m('同步完成','#10b981');
+  else m('同步失败:\n'+((r.stderr||'').trim()||(r.stdout||'').trim()||r.code),'#ef4444');
+  await refreshIPv6();
+}
+
+document.getElementById('save').onclick=save;
+document.getElementById('run').onclick=runNow;
+window.onload=load;
+</script>
+</body>
+</html>

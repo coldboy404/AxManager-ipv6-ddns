@@ -1,0 +1,8 @@
+id=cf_ipv6_ddns
+name=Cloudflare IPv6 DDNS
+version=2.2.5
+versionCode=225
+author=@coldboy404
+description=同步动态IPv6到Cloudflare AAAA记录。
+banner=image.jpg
+axeronPlugin=10000
