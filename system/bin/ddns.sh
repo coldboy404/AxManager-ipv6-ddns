@@ -165,7 +165,19 @@ main(){
       echo "CREATE OK: $CF_RECORD_NAME -> $IPV6"
       exit 0
     fi
+
     ERR=$(grep -o '"message":"[^"]*"' "$LAST_RESP_FILE" | head -n1 | cut -d: -f2- | tr -d '"')
+
+    # Cloudflare may return 400 with "An identical record already exists." when server-side
+    # normalization/trailing-dot differences make the pre-query miss an existing record.
+    # Treat this as success to avoid false negative loops.
+    if [ "$CODE" = "400" ] && echo "$ERR" | grep -qi 'identical record already exists'; then
+      echo "$IPV6" > "$LAST_IP_FILE"
+      log "No change (already exists): $CF_RECORD_NAME -> $IPV6"
+      echo "No change (already exists): $CF_RECORD_NAME -> $IPV6"
+      exit 0
+    fi
+
     log "CREATE FAIL HTTP=$CODE ${ERR:+msg=$ERR}"
     echo "CREATE FAIL HTTP=$CODE ${ERR:+msg=$ERR}"
     exit 2
