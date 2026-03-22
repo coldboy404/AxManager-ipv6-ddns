@@ -13,27 +13,26 @@
       padding:16px;
       min-height:100vh;
       display:flex;
-      align-items:flex-start;
       justify-content:center;
-      padding-top:9vh;
       box-sizing:border-box;
     }
     .card{
-      width:min(720px, 100%);
-      margin:0;
+      width:min(720px,100%);
       background:rgba(17,24,39,.78);
       border:1px solid rgba(31,41,55,.9);
       border-radius:14px;
       padding:16px;
-      backdrop-filter: blur(4px);
+      margin-top:8vh;
     }
     .field{margin-bottom:12px}
     label{display:block;font-size:12px;color:#c0d4ff;margin-bottom:6px}
     input,select{width:100%;padding:10px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#fff;box-sizing:border-box}
-    .row{display:flex;gap:10px}.row>div{flex:1}
+    .row{display:flex;gap:10px}
+    .row>div{flex:1}
     .btns{display:flex;gap:10px;margin-top:14px}
     button{flex:1;padding:11px;border:none;border-radius:8px;font-weight:700;cursor:pointer}
-    #save{background:#f6821f;color:#111} #run{background:#1f2937;color:#fff}
+    #save{background:#f6821f;color:#111}
+    #run{background:#1f2937;color:#fff}
     #msg{margin-top:10px;font-size:13px;min-height:18px;white-space:pre-wrap}
     pre{background:#020617;border:1px solid #334155;border-radius:8px;padding:10px;white-space:pre-wrap;max-height:220px;overflow:auto;display:none}
     .muted{font-size:12px;color:#94a3b8}
@@ -41,13 +40,20 @@
     .pill{background:#0b1324;border:1px solid #334155;border-radius:10px;padding:10px}
     .pill .k{font-size:12px;color:#93c5fd;margin-bottom:4px}
     .pill .v{font-size:13px;word-break:break-all}
-    .ok{color:#10b981}.err{color:#ef4444}.warn{color:#f59e0b}
+    .ok{color:#10b981}
+    .err{color:#ef4444}
+    .warn{color:#f59e0b}
   </style>
 </head>
 <body>
   <div class="card">
     <h3 style="margin-top:0">Cloudflare IPv6 DDNS v2.3.0</h3>
-    <div class="muted" style="margin:-6px 0 12px 0">项目链接：<a href="https://github.com/coldboy404/AxManager-ipv6-ddns" target="_blank" rel="noopener noreferrer" style="color:#93c5fd">github.com/coldboy404/AxManager-ipv6-ddns</a></div>
+    <div class="muted" style="margin:-6px 0 12px 0">
+      项目链接：
+      <a href="https://github.com/coldboy404/AxManager-ipv6-ddns" target="_blank" rel="noopener noreferrer" style="color:#93c5fd">
+        github.com/coldboy404/AxManager-ipv6-ddns
+      </a>
+    </div>
 
     <div class="stat">
       <div class="pill">
@@ -62,8 +68,9 @@
     </div>
 
     <div class="field"><label>CF API TOKEN</label><input id="CF_API_TOKEN" type="password" autocomplete="off" /></div>
-    <div class="field"><label>CF ZONE ID</label><input id="CF_ZONE_ID" type="text" placeholder="32位十六进制" pattern="[A-Fa-f0-9]{32}" /></div>
+    <div class="field"><label>CF ZONE ID</label><input id="CF_ZONE_ID" type="text" placeholder="32位十六进制" /></div>
     <div class="field"><label>解析域名</label><input id="CF_RECORD_NAME" type="text" placeholder="home.example.com" /></div>
+
     <div class="row">
       <div class="field"><label>Cloudflare CDN</label><select id="CF_PROXIED"><option value="0">关</option><option value="1">开</option></select></div>
       <div class="field"><label>检查间隔（秒）</label><input id="CHECK_INTERVAL" type="number" value="300" min="60" max="86400" step="1" /></div>
@@ -72,246 +79,213 @@
     <div class="btns"><button id="save">保存配置</button><button id="run">立即同步</button></div>
     <div id="msg"></div>
     <pre id="log"></pre>
-
   </div>
 
-<script type="module">
-import { exec } from 'ax://kernelsu.js';
+  <script type="module">
+    import { exec } from 'ax://kernelsu.js';
 
-const RUNTIME='/sdcard/Android/media/cf_ipv6_ddns';
-const CFG=`${RUNTIME}/config.env`;
-const DDNS=`${RUNTIME}/ddns.sh`;
-const LOG=`${RUNTIME}/ddns.log`;
-const fields=['CF_API_TOKEN','CF_ZONE_ID','CF_RECORD_NAME','CF_PROXIED','CHECK_INTERVAL'];
+    const RUNTIME='/sdcard/Android/media/cf_ipv6_ddns';
+    const CFG=RUNTIME+'/config.env';
+    const DDNS=RUNTIME+'/ddns.sh';
+    const LOG=RUNTIME+'/ddns.log';
+    const fields=['CF_API_TOKEN','CF_ZONE_ID','CF_RECORD_NAME','CF_PROXIED','CHECK_INTERVAL'];
 
-function m(t,c='#94a3b8'){const e=document.getElementById('msg');e.textContent=t;e.style.color=c}
-function esc(v){return String(v||'').replace(/'/g,"'\"'\"'").replace(/\r?\n/g,'');}
-function setLastResult(text, cls='muted'){
-  const el=document.getElementById('lastResult');
-  el.textContent=text || '暂无记录';
-  el.className=`v ${cls}`;
-}
-function setLastTime(text){ document.getElementById('lastTime').textContent=text || '-'; }
-
-function normDomain(v){
-  return String(v||'').trim().toLowerCase().replace(/^\.+|\.+$/g,'');
-}
-function isValidDomain(v){
-  if(!v) return false;
-  if(v.length>253) return false;
-  const parts=v.split('.');
-  if(parts.length<2) return false;
-  return parts.every(p=>/^[a-z0-9-]{1,63}$/.test(p) && !p.startsWith('-') && !p.endsWith('-'));
-}
-function isValidZoneId(v){
-  return /^[a-fA-F0-9]{32}$/.test(String(v||'').trim());
-}
-function parseLastLine(stdout=''){ 
-  const lines=String(stdout).split('\n').map(s=>s.trim()).filter(Boolean);
-  return lines.length ? lines[lines.length-1] : '';
-}
-function classifyResult(text=''){
-  if(/CREATE OK|UPDATE OK|No change|Skip: another ddns instance/i.test(text)) return 'ok';
-  if(/FAIL|ERROR|not found|HTTP=/i.test(text)) return 'err';
-  return 'warn';
-}
-
-async function x(cmd){
-  try {
-    const r = await exec(cmd);
-    const code = (typeof r?.code === 'number') ? r.code : ((typeof r?.exitCode === 'number') ? r.exitCode : 0);
-    return { code, stdout: r?.stdout || '', stderr: r?.stderr || '' };
-  } catch(e){
-    return { code:999, stdout:'', stderr:String(e) };
-  }
-}
-
-async function refreshIPv6(){
-  let ip = '';
-
-  let r = await x("curl -6 -sS --max-time 6 https://api64.ipify.org 2>/dev/null | tr -d '\\r\\n '");
-  ip = ((r.stdout||'').trim());
-
-  if(!ip){
-    r = await x("ip -6 route get 2606:4700:4700::1111 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"src\"){print $(i+1); exit}}'");
-    ip = ((r.stdout||'').trim());
-  }
-
-  if(!ip){
-    r = await x("ip -6 addr show scope global 2>/dev/null | awk '/inet6/{print $2}' | cut -d/ -f1 | head -n1");
-    ip = ((r.stdout||'').trim());
-  }
-
-  ip = ip.replace(/^inet6\s+/i, '').replace(/^addr:\s*/i, '').replace(/\/.+$/, '');
-  document.getElementById('ipv6').textContent = ip || '未获取到';
-}
-
-async function ensureRuntime(){
-  await x(`mkdir -p ${RUNTIME}`);
-  await x(`
-[ -f ${DDNS} ] || cp ../system/bin/ddns.sh ${DDNS} 2>/dev/null || true
-[ -f ${DDNS} ] || cp /data/adb/modules/cf_ipv6_ddns/system/bin/ddns.sh ${DDNS} 2>/dev/null || true
-[ -f ${DDNS} ] || cp /data/adb/modules_update/cf_ipv6_ddns/system/bin/ddns.sh ${DDNS} 2>/dev/null || true
-chmod 700 ${DDNS} 2>/dev/null || true`);
-}
-
-async function refreshLastSync(){
-  const r = await x(`[ -f ${LOG} ] && tail -n 1 ${LOG} || true`);
-  const line=(r.stdout||'').trim();
-  if(!line){
-    setLastResult('暂无记录','muted');
-    setLastTime('-');
-    return;
-  }
-  const m = line.match(/^\[(.*?)\]\s*(.*)$/);
-  const ts = m?.[1] || '-';
-  const msg = m?.[2] || line;
-  const c = classifyResult(msg);
-  setLastResult(msg, c==='ok'?'ok':(c==='err'?'err':'warn'));
-  setLastTime(ts);
-}
-
-function validateForm(showMessage=true){
-  const zone=document.getElementById('CF_ZONE_ID').value.trim();
-  const domain=normDomain(document.getElementById('CF_RECORD_NAME').value);
-  const intervalRaw=document.getElementById('CHECK_INTERVAL').value.trim();
-  const interval=Number(intervalRaw);
-
-  if(!isValidZoneId(zone)){
-    showMessage && m('CF ZONE ID 格式错误，应为 32 位十六进制。','#ef4444');
-    return false;
-  }
-  if(!isValidDomain(domain)){
-    showMessage && m('解析域名格式错误，请填写完整域名（如 home.example.com）。','#ef4444');
-    return false;
-  }
-  if(!Number.isInteger(interval) || interval<60 || interval>86400){
-    showMessage && m('检查间隔需为 60~86400 的整数秒。','#ef4444');
-    return false;
-  }
-
-  document.getElementById('CF_RECORD_NAME').value = domain;
-  document.getElementById('CHECK_INTERVAL').value = String(interval);
-  return true;
-}
-
-async function load(){
-  await ensureRuntime();
-  const r=await x(`[ -f ${CFG} ] && cat ${CFG} || true`);
-  (r.stdout||'').split('\n').forEach(line=>{
-    const t=line.trim(); if(!t||t.startsWith('#')||!t.includes('=')) return;
-    const i=t.indexOf('='); const k=t.slice(0,i).trim(); const v=t.slice(i+1).trim();
-    const el=document.getElementById(k); if(el) el.value=v;
-  });
-  await refreshIPv6();
-  await refreshLastSync();
-  m('就绪','#10b981');
-}
-
-async function save(){
-  if(!validateForm(true)) return;
-
-  m('保存中...','#f59e0b');
-  await ensureRuntime();
-  const vals={};
-  fields.forEach(k=> vals[k]=esc(document.getElementById(k).value));
-
-  const cmds = [
-    `mkdir -p ${RUNTIME}`,
-    `: > ${CFG}`,
-    `echo '# generated by webui v2.3.0' >> ${CFG}`,
-    `echo 'CF_API_TOKEN=${vals.CF_API_TOKEN}' >> ${CFG}`,
-    `echo 'CF_ZONE_ID=${vals.CF_ZONE_ID}' >> ${CFG}`,
-    `echo 'CF_RECORD_NAME=${vals.CF_RECORD_NAME}' >> ${CFG}`,
-    `echo 'CF_PROXIED=${vals.CF_PROXIED||'0'}' >> ${CFG}`,
-    `echo 'CF_TTL=120' >> ${CFG}`,
-    `echo 'CHECK_INTERVAL=${vals.CHECK_INTERVAL||'300'}' >> ${CFG}`
-  ];
-
-  for (const c of cmds) {
-    const rr = await x(c);
-    if (rr.code !== 0) {
-      m('保存失败:\n'+((rr.stderr||'').trim()||(rr.stdout||'').trim()||String(rr.code)),'#ef4444');
-      return;
+    function m(t,c='#94a3b8'){const e=document.getElementById('msg');e.textContent=t;e.style.color=c}
+    function esc(v){return String(v||'').replace(/'/g,"'\"'\"'").replace(/\r?\n/g,'');}
+    function setLastResult(text, cls='muted'){
+      const el=document.getElementById('lastResult');
+      el.textContent=text || '暂无记录';
+      el.className='v '+cls;
     }
-  }
+    function setLastTime(text){ document.getElementById('lastTime').textContent=text || '-'; }
 
-  const verify=await x(`[ -f ${CFG} ] && grep -q '^CF_API_TOKEN=' ${CFG} && grep -q '^CF_ZONE_ID=' ${CFG} && grep -q '^CF_RECORD_NAME=' ${CFG} && echo OK || echo FAIL`);
-  if((verify.stdout||'').includes('OK')) m('保存成功','#10b981');
-  else m('保存失败: 配置文件校验未通过','#ef4444');
-}
+    function normDomain(v){ return String(v||'').trim().toLowerCase().replace(/^\.+|\.+$/g,''); }
+    function isValidDomain(v){
+      if(!v || v.length>253) return false;
+      const parts=v.split('.');
+      if(parts.length<2) return false;
+      return parts.every(p=>/^[a-z0-9-]{1,63}$/.test(p) && !p.startsWith('-') && !p.endsWith('-'));
+    }
+    function isValidZoneId(v){ return /^[a-fA-F0-9]{32}$/.test(String(v||'').trim()); }
 
-async function runNow(){
-  if(!validateForm(true)) return;
+    function classifyResult(text=''){
+      if(/CREATE OK|UPDATE OK|No change|Skip: another ddns instance/i.test(text)) return 'ok';
+      if(/FAIL|ERROR|not found|HTTP=/i.test(text)) return 'err';
+      return 'warn';
+    }
 
-  m('同步中...','#f59e0b');
-  await ensureRuntime();
-  const log=document.getElementById('log'); log.style.display='block'; log.textContent='';
+    async function x(cmd){
+      try {
+        const r = await exec(cmd);
+        const code = (typeof r?.code === 'number') ? r.code : ((typeof r?.exitCode === 'number') ? r.exitCode : 0);
+        return { code, stdout: r?.stdout || '', stderr: r?.stderr || '' };
+      } catch(e){
+        return { code:999, stdout:'', stderr:String(e) };
+      }
+    }
 
-  const r=await x(`
-if [ -f ${DDNS} ]; then
-  sh ${DDNS}
-elif [ -f /data/adb/modules/cf_ipv6_ddns/system/bin/ddns.sh ]; then
-  sh /data/adb/modules/cf_ipv6_ddns/system/bin/ddns.sh
-elif [ -f /data/adb/modules_update/cf_ipv6_ddns/system/bin/ddns.sh ]; then
-  sh /data/adb/modules_update/cf_ipv6_ddns/system/bin/ddns.sh
-else
-  echo 'ddns.sh not found in runtime or module path'
-  exit 127
-fi`);
+    async function ensureRuntime(){
+      await x('mkdir -p '+RUNTIME);
+      const cmd = [
+        '[ -f '+DDNS+' ] || cp ../system/bin/ddns.sh '+DDNS+' 2>/dev/null || true',
+        '[ -f '+DDNS+' ] || cp /data/adb/modules/cf_ipv6_ddns/system/bin/ddns.sh '+DDNS+' 2>/dev/null || true',
+        '[ -f '+DDNS+' ] || cp /data/adb/modules_update/cf_ipv6_ddns/system/bin/ddns.sh '+DDNS+' 2>/dev/null || true',
+        'chmod 700 '+DDNS+' 2>/dev/null || true'
+      ].join('\n');
+      await x(cmd);
+    }
 
-  const combined=((r.stdout||'') + '\n' + (r.stderr||'')).trim();
-  log.textContent=combined;
+    async function refreshIPv6(){
+      let ip='';
+      let r=await x("curl -6 -sS --max-time 6 https://api64.ipify.org 2>/dev/null | tr -d '\\r\\n '");
+      ip=(r.stdout||'').trim();
+      if(!ip){
+        r=await x("ip -6 route get 2606:4700:4700::1111 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"src\"){print $(i+1); exit}}'");
+        ip=(r.stdout||'').trim();
+      }
+      if(!ip){
+        r=await x("ip -6 addr show scope global 2>/dev/null | awk '/inet6/{print $2}' | cut -d/ -f1 | head -n1");
+        ip=(r.stdout||'').trim();
+      }
+      ip=ip.replace(/^inet6\s+/i,'').replace(/^addr:\s*/i,'').replace(/\/.+$/,'');
+      document.getElementById('ipv6').textContent = ip || '未获取到';
+    }
 
-  const lastMsg=parseLastLine(combined);
-  const c=classifyResult(lastMsg);
-  setLastResult(lastMsg || (r.code===0 ? '同步完成' : '同步失败'), c==='ok'?'ok':(c==='err'?'err':'warn'));
-  setLastTime(new Date().toLocaleString('zh-CN',{hour12:false}));
+    async function refreshLastSync(){
+      const r=await x('[ -f '+LOG+' ] && tail -n 1 '+LOG+' || true');
+      const line=(r.stdout||'').trim();
+      if(!line){
+        setLastResult('暂无记录','muted');
+        setLastTime('-');
+        return;
+      }
+      const m=line.match(/^\[(.*?)\]\s*(.*)$/);
+      const ts=m?.[1] || '-';
+      const msg=m?.[2] || line;
+      const c=classifyResult(msg);
+      setLastResult(msg, c==='ok'?'ok':(c==='err'?'err':'warn'));
+      setLastTime(ts);
+    }
 
-  if(r.code===0) m('同步完成','#10b981');
-  else m('同步失败:\n'+((r.stderr||'').trim()||(r.stdout||'').trim()||r.code),'#ef4444');
-  await refreshIPv6();
-}
+    function validateForm(showMessage=true){
+      const zone=document.getElementById('CF_ZONE_ID').value.trim();
+      const domain=normDomain(document.getElementById('CF_RECORD_NAME').value);
+      const intervalRaw=document.getElementById('CHECK_INTERVAL').value.trim();
+      const interval=Number(intervalRaw);
 
-['CF_ZONE_ID','CF_RECORD_NAME','CHECK_INTERVAL'].forEach(id=>{
-  document.getElementById(id).addEventListener('blur',()=>validateForm(false));
-});
+      if(!isValidZoneId(zone)){
+        showMessage && m('CF ZONE ID 格式错误，应为 32 位十六进制。','#ef4444');
+        return false;
+      }
+      if(!isValidDomain(domain)){
+        showMessage && m('解析域名格式错误，请填写完整域名（如 home.example.com）。','#ef4444');
+        return false;
+      }
+      if(!Number.isInteger(interval) || interval<60 || interval>86400){
+        showMessage && m('检查间隔需为 60~86400 的整数秒。','#ef4444');
+        return false;
+      }
 
-document.getElementById('save').onclick=save;
-document.getElementById('run').onclick=runNow;
-window.onload=load;
-</script>
-</body>
-</html>
-ta/adb/modules/cf_ipv6_ddns/system/bin/ddns.sh ]; then
-  sh /data/adb/modules/cf_ipv6_ddns/system/bin/ddns.sh
-elif [ -f /data/adb/modules_update/cf_ipv6_ddns/system/bin/ddns.sh ]; then
-  sh /data/adb/modules_update/cf_ipv6_ddns/system/bin/ddns.sh
-else
-  echo 'ddns.sh not found in runtime or module path'
-  exit 127
-fi`);
+      document.getElementById('CF_RECORD_NAME').value=domain;
+      document.getElementById('CHECK_INTERVAL').value=String(interval);
+      return true;
+    }
 
-  const combined=((r.stdout||'') + '\n' + (r.stderr||'')).trim();
-  log.textContent=combined;
+    async function load(){
+      await ensureRuntime();
+      const r=await x('[ -f '+CFG+' ] && cat '+CFG+' || true');
+      (r.stdout||'').split('\n').forEach(line=>{
+        const t=line.trim();
+        if(!t || t.startsWith('#') || !t.includes('=')) return;
+        const i=t.indexOf('=');
+        const k=t.slice(0,i).trim();
+        const v=t.slice(i+1).trim();
+        const el=document.getElementById(k);
+        if(el) el.value=v;
+      });
+      await refreshIPv6();
+      await refreshLastSync();
+      m('就绪','#10b981');
+    }
 
-  const lastMsg=parseLastLine(combined);
-  const c=classifyResult(lastMsg);
-  setLastResult(lastMsg || (r.code===0 ? '同步完成' : '同步失败'), c==='ok'?'ok':(c==='err'?'err':'warn'));
-  setLastTime(new Date().toLocaleString('zh-CN',{hour12:false}));
+    async function save(){
+      if(!validateForm(true)) return;
+      m('保存中...','#f59e0b');
+      await ensureRuntime();
 
-  if(r.code===0) m('同步完成','#10b981');
-  else m('同步失败:\n'+((r.stderr||'').trim()||(r.stdout||'').trim()||r.code),'#ef4444');
-  await refreshIPv6();
-}
+      const vals={};
+      fields.forEach(k=>vals[k]=esc(document.getElementById(k).value));
 
-['CF_ZONE_ID','CF_RECORD_NAME','CHECK_INTERVAL'].forEach(id=>{
-  document.getElementById(id).addEventListener('blur',()=>validateForm(false));
-});
+      const cmds=[
+        'mkdir -p '+RUNTIME,
+        ': > '+CFG,
+        "echo '# generated by webui v2.3.0' >> "+CFG,
+        "echo 'CF_API_TOKEN="+vals.CF_API_TOKEN+"' >> "+CFG,
+        "echo 'CF_ZONE_ID="+vals.CF_ZONE_ID+"' >> "+CFG,
+        "echo 'CF_RECORD_NAME="+vals.CF_RECORD_NAME+"' >> "+CFG,
+        "echo 'CF_PROXIED="+(vals.CF_PROXIED||'0')+"' >> "+CFG,
+        "echo 'CF_TTL=120' >> "+CFG,
+        "echo 'CHECK_INTERVAL="+(vals.CHECK_INTERVAL||'300')+"' >> "+CFG
+      ];
 
-document.getElementById('save').onclick=save;
-document.getElementById('run').onclick=runNow;
-window.onload=load;
-</script>
+      for(const c of cmds){
+        const rr=await x(c);
+        if(rr.code!==0){
+          m('保存失败:\n'+((rr.stderr||'').trim()||(rr.stdout||'').trim()||String(rr.code)),'#ef4444');
+          return;
+        }
+      }
+
+      const verify=await x('[ -f '+CFG+' ] && grep -q "^CF_API_TOKEN=" '+CFG+' && grep -q "^CF_ZONE_ID=" '+CFG+' && grep -q "^CF_RECORD_NAME=" '+CFG+' && echo OK || echo FAIL');
+      if((verify.stdout||'').includes('OK')) m('保存成功','#10b981');
+      else m('保存失败: 配置文件校验未通过','#ef4444');
+    }
+
+    async function runNow(){
+      if(!validateForm(true)) return;
+
+      m('同步中...','#f59e0b');
+      await ensureRuntime();
+      const log=document.getElementById('log');
+      log.style.display='block';
+      log.textContent='';
+
+      const cmd=[
+        'if [ -f '+DDNS+' ]; then',
+        '  sh '+DDNS,
+        'elif [ -f /data/adb/modules/cf_ipv6_ddns/system/bin/ddns.sh ]; then',
+        '  sh /data/adb/modules/cf_ipv6_ddns/system/bin/ddns.sh',
+        'elif [ -f /data/adb/modules_update/cf_ipv6_ddns/system/bin/ddns.sh ]; then',
+        '  sh /data/adb/modules_update/cf_ipv6_ddns/system/bin/ddns.sh',
+        'else',
+        "  echo 'ddns.sh not found in runtime or module path'",
+        '  exit 127',
+        'fi'
+      ].join('\n');
+
+      const r=await x(cmd);
+      const combined=((r.stdout||'')+'\n'+(r.stderr||'')).trim();
+      log.textContent=combined;
+
+      const lines=combined.split('\n').map(s=>s.trim()).filter(Boolean);
+      const lastMsg=lines.length?lines[lines.length-1]:'';
+      const c=classifyResult(lastMsg);
+      setLastResult(lastMsg || (r.code===0?'同步完成':'同步失败'), c==='ok'?'ok':(c==='err'?'err':'warn'));
+      setLastTime(new Date().toLocaleString('zh-CN',{hour12:false}));
+
+      if(r.code===0) m('同步完成','#10b981');
+      else m('同步失败:\n'+((r.stderr||'').trim()||(r.stdout||'').trim()||String(r.code)),'#ef4444');
+
+      await refreshIPv6();
+    }
+
+    ['CF_ZONE_ID','CF_RECORD_NAME','CHECK_INTERVAL'].forEach(id=>{
+      document.getElementById(id).addEventListener('blur',()=>validateForm(false));
+    });
+
+    document.getElementById('save').onclick=save;
+    document.getElementById('run').onclick=runNow;
+    window.onload=load;
+  </script>
 </body>
 </html>
