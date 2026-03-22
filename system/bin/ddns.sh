@@ -6,11 +6,23 @@ CFG_FILE="$RUNTIME_DIR/config.env"
 LOG_FILE="$RUNTIME_DIR/ddns.log"
 LAST_IP_FILE="$RUNTIME_DIR/last_ipv6.txt"
 LAST_RESP_FILE="$RUNTIME_DIR/last_api_response.json"
+LOCK_DIR="$RUNTIME_DIR/.run.lock"
 
 mkdir -p "$RUNTIME_DIR"
 chmod 700 "$RUNTIME_DIR" 2>/dev/null || true
 
-log(){ echo "[$(date '+%F %T')] $*" >> "$LOG_FILE"; }
+rotate_log(){
+  [ -f "$LOG_FILE" ] || return 0
+  SIZE=$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)
+  case "$SIZE" in ''|*[!0-9]*) SIZE=0 ;; esac
+  [ "$SIZE" -le 1048576 ] && return 0
+  tail -n 500 "$LOG_FILE" > "$LOG_FILE.tmp" 2>/dev/null && mv "$LOG_FILE.tmp" "$LOG_FILE"
+}
+
+log(){
+  rotate_log
+  echo "[$(date '+%F %T')] $*" >> "$LOG_FILE"
+}
 
 load_cfg(){
   if [ -f "$CFG_FILE" ]; then
@@ -69,6 +81,30 @@ ipv6_pick(){
   return 1
 }
 
+acquire_lock(){
+  if mkdir "$LOCK_DIR" 2>/dev/null; then
+    trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT INT TERM
+    return 0
+  fi
+  log "Skip: another ddns instance is running"
+  echo "Skip: another ddns instance is running"
+  exit 0
+}
+
+extract_record_id(){
+  if require_bin jq; then
+    jq -r --arg name "$CF_RECORD_NAME" '.result[]? | select(.type=="AAAA" and .name==$name) | .id' "$1" 2>/dev/null | head -n1
+    return
+  fi
+
+  # Fallback parser without jq: extract first object in result[] and then read id
+  tr -d '\n' < "$1" \
+    | sed -n 's/.*"result"[[:space:]]*:[[:space:]]*\[\({[^]]*}\)\][[:space:]]*,[[:space:]]*"result_info".*/\1/p' \
+    | grep -o '"id":"[^"]*"' \
+    | head -n1 \
+    | cut -d'"' -f4
+}
+
 main(){
   if ! require_bin curl; then log "ERROR: curl not found"; echo "ERROR: curl not found"; exit 1; fi
   if ! load_cfg; then log "ERROR: missing $CFG_FILE"; echo "ERROR: missing config"; exit 1; fi
@@ -78,6 +114,8 @@ main(){
     echo "ERROR: config fields missing"
     exit 1
   fi
+
+  acquire_lock
 
   IPV6="$(ipv6_pick)"
   if [ -z "$IPV6" ]; then
@@ -96,16 +134,21 @@ main(){
 
   log "Using IPv6: $IPV6"
 
-  LIST_URL="https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records?type=AAAA&name=$CF_RECORD_NAME"
   LIST_RESP="$RUNTIME_DIR/list_response.json"
-  LIST_CODE=$(curl -sS -o "$LIST_RESP" -w "%{http_code}" "$LIST_URL" -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json")
+  LIST_CODE=$(curl -sS -G -o "$LIST_RESP" -w "%{http_code}" \
+    --data-urlencode "type=AAAA" \
+    --data-urlencode "name=$CF_RECORD_NAME" \
+    "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records" \
+    -H "Authorization: Bearer $CF_API_TOKEN" \
+    -H "Content-Type: application/json")
+
   if [ "$LIST_CODE" != "200" ]; then
     log "ERROR: list record HTTP=$LIST_CODE"
     echo "ERROR: list record HTTP=$LIST_CODE"
     exit 2
   fi
 
-  RECORD_ID=$(grep -o '"id":"[^"]*"' "$LIST_RESP" | head -n1 | cut -d: -f2 | tr -d '"')
+  RECORD_ID="$(extract_record_id "$LIST_RESP")"
 
   PROXIED=false
   [ "${CF_PROXIED:-0}" = "1" ] && PROXIED=true
