@@ -1,7 +1,7 @@
 #!/system/bin/sh
 # AxBeacon for AxManager (network-switch robust)
 
-RUNTIME_DIR=/sdcard/Android/media/cf_ipv6_ddns
+RUNTIME_DIR=/sdcard/Android/media/axbeacon
 CFG_FILE="$RUNTIME_DIR/config.env"
 LOG_FILE="$RUNTIME_DIR/ddns.log"
 LAST_IP_FILE="$RUNTIME_DIR/last_ipv6.txt"

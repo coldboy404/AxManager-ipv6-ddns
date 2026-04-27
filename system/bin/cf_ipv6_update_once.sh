@@ -4,7 +4,7 @@
 MODDIR=${0%/*}
 MODDIR=${MODDIR%/system/bin}
 LOG_DIR="$MODDIR/output"
-LOG_FILE="$LOG_DIR/cf_ipv6_ddns.log"
+LOG_FILE="$LOG_DIR/axbeacon.log"
 LAST_IP_FILE="$LOG_DIR/last_ipv6.txt"
 CFG_FILE="$MODDIR/config.env"
 
