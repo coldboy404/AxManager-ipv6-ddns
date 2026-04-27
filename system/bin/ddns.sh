@@ -91,18 +91,54 @@ acquire_lock(){
   exit 0
 }
 
-extract_record_id(){
+extract_record_ids(){
   if require_bin jq; then
-    jq -r --arg name "$CF_RECORD_NAME" '.result[]? | select(.type=="AAAA" and .name==$name) | .id' "$1" 2>/dev/null | head -n1
+    jq -r --arg name "$CF_RECORD_NAME" '.result[]? | select(.type=="AAAA" and .name==$name) | .id' "$1" 2>/dev/null | grep -v '^null$'
     return
   fi
 
-  # Fallback parser without jq: extract first object in result[] and then read id
+  # Fallback parser without jq. The Cloudflare list request is already filtered by
+  # type=AAAA and name=$CF_RECORD_NAME, so every id in result[] is a candidate.
   tr -d '\n' < "$1" \
-    | sed -n 's/.*"result"[[:space:]]*:[[:space:]]*\[\({[^]]*}\)\][[:space:]]*,[[:space:]]*"result_info".*/\1/p' \
+    | sed -n 's/.*"result"[[:space:]]*:[[:space:]]*\[\(.*\)\][[:space:]]*,[[:space:]]*"result_info".*/\1/p' \
     | grep -o '"id":"[^"]*"' \
-    | head -n1 \
     | cut -d'"' -f4
+}
+
+extract_record_id(){
+  extract_record_ids "$1" | head -n1
+}
+
+cleanup_duplicate_records(){
+  keep_id="$1"
+  ids_file="$2"
+  deleted=0
+  failed=0
+
+  [ -n "$keep_id" ] || return 0
+  [ -f "$ids_file" ] || return 0
+
+  while IFS= read -r rid; do
+    [ -n "$rid" ] || continue
+    [ "$rid" = "$keep_id" ] && continue
+
+    DEL_URL="https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records/$rid"
+    DEL_CODE=$(curl -sS -o /dev/null -w "%{http_code}" -X DELETE "$DEL_URL" \
+      -H "Authorization: Bearer $CF_API_TOKEN" \
+      -H "Content-Type: application/json")
+
+    if [ "$DEL_CODE" = "200" ]; then
+      deleted=$((deleted + 1))
+      log "CLEANUP OK: deleted duplicate AAAA record id=$rid"
+    else
+      failed=$((failed + 1))
+      log "CLEANUP WARN: delete duplicate id=$rid HTTP=$DEL_CODE"
+    fi
+  done < "$ids_file"
+
+  if [ "$deleted" -gt 0 ] || [ "$failed" -gt 0 ]; then
+    log "CLEANUP DONE: keep=$keep_id deleted=$deleted failed=$failed"
+  fi
 }
 
 main(){
@@ -126,10 +162,10 @@ main(){
 
   LAST=""
   [ -f "$LAST_IP_FILE" ] && LAST="$(cat "$LAST_IP_FILE" 2>/dev/null)"
+  IP_CHANGED=1
   if [ "$LAST" = "$IPV6" ]; then
-    log "No change: $IPV6"
-    echo "No change: $IPV6"
-    exit 0
+    IP_CHANGED=0
+    log "No local IPv6 change: $IPV6, verifying Cloudflare records"
   fi
 
   log "Using IPv6: $IPV6"
@@ -148,7 +184,9 @@ main(){
     exit 2
   fi
 
-  RECORD_ID="$(extract_record_id "$LIST_RESP")"
+  RECORD_IDS_FILE="$RUNTIME_DIR/record_ids.txt"
+  extract_record_ids "$LIST_RESP" > "$RECORD_IDS_FILE"
+  RECORD_ID="$(head -n1 "$RECORD_IDS_FILE" 2>/dev/null)"
 
   PROXIED=false
   [ "${CF_PROXIED:-0}" = "1" ] && PROXIED=true
@@ -187,9 +225,15 @@ main(){
   CODE=$(curl -sS -o "$LAST_RESP_FILE" -w "%{http_code}" -X PUT "$PUT_URL" -H "Authorization: Bearer $CF_API_TOKEN" -H "Content-Type: application/json" --data "$PAYLOAD")
 
   if [ "$CODE" = "200" ] && grep -q '"success":true' "$LAST_RESP_FILE"; then
+    cleanup_duplicate_records "$RECORD_ID" "$RECORD_IDS_FILE"
     echo "$IPV6" > "$LAST_IP_FILE"
-    log "UPDATE OK: $CF_RECORD_NAME -> $IPV6"
-    echo "UPDATE OK: $CF_RECORD_NAME -> $IPV6"
+    if [ "$IP_CHANGED" = "0" ]; then
+      log "VERIFY OK: $CF_RECORD_NAME -> $IPV6"
+      echo "VERIFY OK: $CF_RECORD_NAME -> $IPV6"
+    else
+      log "UPDATE OK: $CF_RECORD_NAME -> $IPV6"
+      echo "UPDATE OK: $CF_RECORD_NAME -> $IPV6"
+    fi
     exit 0
   fi
 

@@ -6,9 +6,14 @@ DDNS_SH_MODULE="${0%/*}/system/bin/ddns.sh"
 LOG_FILE="$RUNTIME_DIR/ddns.log"
 
 mkdir -p "$RUNTIME_DIR"
-if [ -f "$DDNS_SH_MODULE" ] && [ ! -f "$DDNS_SH_RUNTIME" ]; then
-  cp "$DDNS_SH_MODULE" "$DDNS_SH_RUNTIME" 2>/dev/null || true
-  chmod 700 "$DDNS_SH_RUNTIME" 2>/dev/null || true
+if [ -f "$DDNS_SH_MODULE" ]; then
+  MODULE_SUM="$(cksum "$DDNS_SH_MODULE" 2>/dev/null | awk '{print $1":"$2}')"
+  RUNTIME_SUM=""
+  [ -f "$DDNS_SH_RUNTIME" ] && RUNTIME_SUM="$(cksum "$DDNS_SH_RUNTIME" 2>/dev/null | awk '{print $1":"$2}')"
+  if [ ! -f "$DDNS_SH_RUNTIME" ] || [ "$MODULE_SUM" != "$RUNTIME_SUM" ]; then
+    cp "$DDNS_SH_MODULE" "$DDNS_SH_RUNTIME" 2>/dev/null || true
+    chmod 700 "$DDNS_SH_RUNTIME" 2>/dev/null || true
+  fi
 fi
 [ -f "$CFG_FILE" ] || cat "${0%/*}/config.env.example" > "$CFG_FILE"
 
