@@ -1,4 +1,4 @@
-# Cloudflare IPv6 DDNS（AxManager 插件）
+# AxBeacon（AxManager Cloudflare IPv6 DDNS 插件）
 
 一个为 **AxManager** 设计的 Cloudflare 动态 IPv6 同步插件：
 自动检测设备当前 IPv6，并更新到 Cloudflare 的 `AAAA` 记录。

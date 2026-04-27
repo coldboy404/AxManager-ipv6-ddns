@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# Cloudflare IPv6 DDNS updater v1.2.2 (better compatibility)
+# AxBeacon updater v1.2.2 (better compatibility)
 
 MODDIR=${0%/*}
 MODDIR=${MODDIR%/system/bin}

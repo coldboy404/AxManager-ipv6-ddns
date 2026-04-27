@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# Cloudflare IPv6 DDNS for AxManager (network-switch robust)
+# AxBeacon for AxManager (network-switch robust)
 
 RUNTIME_DIR=/sdcard/Android/media/cf_ipv6_ddns
 CFG_FILE="$RUNTIME_DIR/config.env"
